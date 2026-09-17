@@ -1,0 +1,21 @@
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# deps / build
+node_modules/
+*.zip
+*.crx
+*.pem
+
+# local secrets / scratch
+.env
+*.local
+test/
+tests/
+tmp/

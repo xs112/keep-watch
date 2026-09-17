@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "keep-watch",
+  "version": "2.6.3",
+  "description": "挂课防暂停 + 后台自动答题（超星加密字体自动解密/页面答案/本地题库/AI），支持超星、智慧树、雨课堂等",
+  "icons": { "48": "icon48.png", "128": "icon128.png" },
+  "action": {
+    "default_icon": { "48": "icon48.png", "128": "icon128.png" },
+    "default_popup": "popup.html",
+    "default_title": "keep-watch 设置"
+  },
+  "permissions": ["storage", "permissions"],
+  "optional_host_permissions": ["*://*/*"],
+  "host_permissions": [
+    "https://api.deepseek.com/*",
+    "https://api.openai.com/*",
+    "https://openrouter.ai/*",
+    "https://api.moonshot.cn/*",
+    "https://open.bigmodel.cn/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://ark.cn-beijing.volces.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["keep.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["diag.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["vendor/typr.js", "vendor/cxtable.js", "cxdecrypt.js", "quiz.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "ISOLATED"
+    }
+  ]
+}

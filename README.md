@@ -1,0 +1,80 @@
+# keep-watch v2.6 — 挂课防暂停 + 后台自动答题 + 自动连播 + 只刷课模式
+
+Chrome/Edge MV3 扩展。在原"防切屏暂停"基础上新增后台自动答题。
+
+## 🎯 只刷课模式（v2.6 新增）
+
+popup 勾选「**只刷课模式（遇题跳过，只看视频并持续连播）**」后：
+- **不答任何题**：单选/多选/判断/填空一律不点，作业/章节测验页直接跳过；
+- **视频中途弹题**：自动找「关闭/取消/继续学习/暂不答题/跳过」关掉弹层并恢复播放（不误关"本节完成"弹窗）；
+- **非视频节（作业/测验/文档）**：本页有"下一节"就点；独立测验页无目录时，经 service worker 广播连播协议（`{type:'kw', op:'finish'}`），让同 tab 目录 frame 切到下一节；
+
+## 跨 frame 连播协议（v2.6.2 起统一）
+
+只有两类消息，全部经 service worker 中转（超星视频 iframe 与目录 iframe 是兄弟关系，无法直接 postMessage）：
+
+- `aiAsk`：frame→SW，AI 答题中转（API Key 只在 SW，不进课程页面）。
+- `{type:'kw', op}`：连播状态机，5 个子动作——
+  - frame→SW：`beat`（本帧视频在播心跳）、`query`（查询是否有帧在播）、`finish`（看完/跳过，10s 防抖）、`reset`（换源清防抖）；
+  - SW→所有帧：`gonext`（防抖后广播，去切下一节）。
+- **持续刷视频**：每个轮询周期保证视频处于播放态，播完自动连播到下一节，直到没有更多节。
+- 该模式独立于「自动答题/自动连播」开关，只受总开关与本开关控制。
+
+
+## 文件
+
+| 文件 | 作用 |
+|---|---|
+| `keep.js` | MAIN world：防暂停（伪装 visibility、吞 blur、3 秒兜底续播） |
+| `quiz.js` | ISOLATED world：题目检测 + 三级答案来源 + 自动点选/提交/翻页 |
+| `background.js` | service worker：AI 请求中转（key 不暴露给课程页面） |
+| `popup.html/js` | 配置页：开关、AI 接口、本地题库导入导出 |
+| `启动挂课浏览器.bat` | 加载本扩展启动 Chrome/Edge |
+
+## 答题流程
+
+1. MutationObserver + 3 秒轮询检测页面题目（超星 `.TiMu`、智慧树、雨课堂、学堂在线、职教云及通用 radio/checkbox/填空结构，含 iframe）。
+2. 按顺序取答案：
+   - **页面内嵌答案**（`正确答案：C`、`.correctAnswer`、`data-correct` 等）
+   - **本地题库**（题干归一化匹配，作答后自动积累，可导出/合并 JSON）
+   - **AI 大模型**（OpenAI 兼容接口：DeepSeek / Kimi / 智谱 / 通义 / OpenAI / OpenRouter / 自定义；判断题回 A/B，填空回内容）
+3. 自动点选（只触发一次点击，避免 label+input 双重点击取消勾选）→ 本题容器内精确点"提交"→ 自动确认弹窗 → "下一题/继续学习"。
+4. 找不到答案的题**跳过不乱选**。右下角悬浮球显示已答/跳过计数，点击可暂停。
+
+## 平台适配
+
+v2.5 起含超星学习通专用适配器（依据开源项目公开 DOM 结构）：
+- **doHomeWork 最新作答页（加密字体）**：`div.singleQuesId > div.TiMu.newTiMu`，选项是纯 `div[role=radio]/[role=checkbox]`（无 input）。题干用 `font-cxsecret` 自定义字体把汉字随机映射成生僻码位（每次刷新都变）。
+  - 内置 `vendor/typr.js`(Typr+md5) + `vendor/cxtable.js`(20902 汉字字形哈希表) + `cxdecrypt.js`：运行时解析当前页内嵌字体，对每个字形做矢量路径 md5 查表，还原真实题干/选项（与公开油猴解密脚本同源同算法）。
+- 新版作业/章节测验：`div.questionLi.singleQuesId`，选项 `ul.mark_letter > li`（纯 li 无 input，直接点 li），正确答案 `.rightAnswerContent`。
+- 旧版视频弹题/测验：`.TiMu`，选项 `.Zy_ulTop>li` / `.Cy_ulTop li` / `ul.answerBg>li`，字母 `i.fl/a.fl`，点 `label>input`，判断题 `.Py_tk`，提交 `.Btn_blue_1`。
+- 其他平台走通用识别（原生 radio/checkbox、`[role=radio]`、纯 div 选项聚类）。
+
+识别不到时在题目页控制台运行 `__kwDiag()` 导出结构发开发者。
+
+> 注意：超星**作答页本身不含正确答案**。解密只负责让 AI 能读懂题；要真正自动作答，必须在弹窗里配置 AI Key（页面答案/本地题库均无答案时才会调用 AI，找不到答案则跳过不乱选）。
+
+## 看完自动下一节（autoNext）
+
+v2.2 为跨 iframe 架构（超星视频 iframe 与目录 iframe 是兄弟页面，互相看不到）：
+
+1. 任意 frame 视频播完（`ended`，或播放到 ≥97%/剩 2 秒——平台卡 99%、结尾弹题不 fire ended 也能触发；要求确实从头看过防误触）；
+2. 视频 frame 若有未答弹题，先等答题引擎答完（最多 9 秒）；
+3. 上报 service worker，SW 按标签页防抖后广播给该页**所有 frame**；
+4. 持有完成弹窗的 frame 立即点"下一节/继续学习"；持有目录/页面按钮的 frame 延迟 1 秒、比对页面签名（高亮章节+视频源+弹窗），确认别的 frame 没切过才点，防双跳；
+5. 目录树支持当前高亮条目的后继（跳过锁定项、同级结束进下一章），新增超星 `posCatalog_active` 等标记；
+6. SPA 换源复用同一 video 时自动重置触发状态与 SW 防抖，新节播完再次切换。
+
+末节/找不到入口只在悬浮球提示、不乱点。可在 popup 关闭。
+
+## 使用
+
+1. 双击 `启动挂课浏览器.bat`（先完全退出浏览器），或在 `chrome://extensions` 开发者模式"加载已解压的扩展程序"选本目录。
+2. 点扩展图标：默认已启用页面答案+本地题库；要用 AI 就填 API Key（推荐 DeepSeek，便宜稳定）。
+3. 建议先用"演练模式"在一套题上验证点选位置，再关掉正式跑。
+
+## 注意
+
+- 仅作技术学习；代刷课/代考可能违反学校与平台规定，后果自负。
+- 各平台 DOM 会改版；若某类题识别不到，把题目页 HTML 结构发我加适配器（优先加选择器到 `CONTAINER_SEL`）。
+- AI 答案不是 100% 正确，题库来源（页面答案/已批改结果）更可靠。
