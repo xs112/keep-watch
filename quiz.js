@@ -3,7 +3,7 @@
   'use strict';
 
   // 极早心跳：不依赖任何后续定义，只要 quiz.js 被加载执行就会写入
-  try { document.documentElement.setAttribute('data-kw-hb-quiz', '2.6.3'); } catch (e) {}
+  try { document.documentElement.setAttribute('data-kw-hb-quiz', '2.6.4'); } catch (e) {}
 
   // CSS.escape 兜底（老旧环境）
   try {
@@ -830,6 +830,16 @@
     if (CFG.usePage) { ans = pageAnswer(q); source = ans ? '页面答案' : ''; if (first) dbg('src-page', ans || 'none'); }
     if (!ans && CFG.useBank) { ans = bankAnswer(q); source = ans ? '本地题库' : ''; if (first) dbg('src-bank', ans || 'none'); }
     if (!ans && CFG.useAI) {
+      // 残字闸门：题干解密不全时 AI 读不懂只会瞎选并污染题库——跳过，不标 done、不写库
+      try {
+        var probe = (q.title || '') + ' ' + q.options.map(function (o) { return o.text || ''; }).join(' ');
+        if (window.__kwCx && window.__kwCx.garbleRatio && window.__kwCx.garbleRatio(probe) > 0.3) {
+          skippedCount++;
+          if (first) dbg('q-result', 'skip-garbled');
+          hudStatus('题干解密不全，跳过不乱选');
+          return false;
+        }
+      } catch (e) {}
       hudStatus('AI 思考中…');
       ans = await aiAnswer(q, first);
       source = ans ? 'AI' : '';
@@ -882,7 +892,7 @@
   function dbg(k, v) {
     try { document.documentElement.setAttribute('data-kw-' + k, String(v)); } catch (e) {}
   }
-  dbg('loaded', '2.6.3');
+  dbg('loaded', '2.6.4');
 
   // ---------- 主循环 ----------
   var loopQueued = false;
@@ -930,26 +940,29 @@
     }
 
     if (!CFG.autoAnswer) return;
-    // 加密字体：后台预热（不阻塞扫题），就绪后下一轮自然用上；解密失败也照常扫题
+    // 加密字体：答题前先等当前页字体解密就绪（buildMap 自带 6s 硬超时，不会死等）。
+    // 否则第一轮会在映射建好前拿乱码问 AI → 瞎选并误标 done。多分片页面尤其需要。
     try {
+      if (window.__kwCx && window.__kwCx.has() && !window.__kwCx.size()) {
+        dbg('font', 'waiting-decrypt');
+        await window.__kwCx.ensure();
+      }
       if (window.__kwCx) {
         dbg('fontHas', window.__kwCx.has() ? '1' : '0');
         dbg('fontSize', window.__kwCx.size());
-        if (window.__kwCx.has() && !window.__kwCx.size() && !fontWarming) {
-          fontWarming = true; dbg('font', 'warming');
-          window.__kwCx.ensure().then(function (m) {
-            fontWarming = false;
-            dbg('font', m ? ('map:' + window.__kwCx.size()) : 'failed');
-          });
-        }
-      } else { dbg('font', 'no-module'); }
-      var st = window.__kwCx && window.__kwCx.stats ? window.__kwCx.stats() : null;
-      if (st) {
-        dbg('fontTotal', st.total);
-        dbg('fontMiss', st.total - st.matched);
-        dbg('fontMissCp', (st.miss || []).join(','));
       }
     } catch (e) { dbg('fontErr', (e.message || '').slice(0, 60)); }
+    try {
+      if (window.__kwCx) {
+        var st = window.__kwCx.stats ? window.__kwCx.stats() : null;
+        if (st) {
+          dbg('fontShards', st.shards || 1);
+          dbg('fontTotal', st.total);
+          dbg('fontMiss', st.total - st.matched);
+          dbg('fontMissCp', (st.miss || []).join(','));
+        }
+      }
+    } catch (e) { dbg('fontErr2', (e.message || '').slice(0, 60)); }
 
     var qs;
     try {
@@ -972,7 +985,6 @@
     busy = false;
     updateHud();
   }
-  var fontWarming = false;
   setInterval(function () {
     if (!active()) return;
     bindVideosAndDialogs();

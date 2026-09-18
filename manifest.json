@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "keep-watch",
-  "version": "2.6.3",
+  "version": "2.6.4",
   "description": "挂课防暂停 + 后台自动答题（超星加密字体自动解密/页面答案/本地题库/AI），支持超星、智慧树、雨课堂等",
   "icons": { "48": "icon48.png", "128": "icon128.png" },
   "action": {
