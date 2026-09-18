@@ -3,7 +3,7 @@
   'use strict';
 
   // 极早心跳：不依赖任何后续定义，只要 quiz.js 被加载执行就会写入
-  try { document.documentElement.setAttribute('data-kw-hb-quiz', '2.6.4'); } catch (e) {}
+  try { document.documentElement.setAttribute('data-kw-hb-quiz', '2.6.5'); } catch (e) {}
 
   // CSS.escape 兜底（老旧环境）
   try {
@@ -445,12 +445,14 @@
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  function findBtn(words, scope) {
+  function findBtn(words, scope, maxLen) {
     scope = scope || document;
-    var btns = [].slice.call(scope.querySelectorAll('button,a.btn,.btn,[role=button],input[type=submit],input[type=button]'));
+    var limit = maxLen || 8;
+    var btns = [].slice.call(scope.querySelectorAll('button,a,.btn,[role=button],input[type=submit],input[type=button]'));
     return btns.filter(visible).find(function (b) {
       var t = (b.innerText || b.value || txt(b) || '').replace(/\s+/g, '');
-      return words.some(function (w) { return t === w || t.indexOf(w) > -1; }) && t.length <= 8;
+      if (!t || t.length > limit) return false;
+      return words.some(function (w) { return t === w || t.indexOf(w) > -1; });
     });
   }
   function doSubmit(q) {
@@ -475,6 +477,68 @@
       var nx = findBtn(['下一题', '下一页', '继续学习', '继续', '关闭']);
       if (nx) nx.click();
     }, 1800);
+  }
+
+  // ---------- 整卷统一交卷（超星章节测验/作业：一个“交卷”按钮管全卷）----------
+  var paperSubmitAt = 0;
+  // 页面里是否还有未作答的题（无 done 标记，或 role 选项一个都没选中）
+  function hasUnanswered() {
+    var boxes = [].slice.call(document.querySelectorAll(CONTAINER_SEL)).filter(visible);
+    if (!boxes.length) return true;
+    return boxes.some(function (box) {
+      if (box.dataset.kwDone === '1') return false;
+      if (box.querySelector('[data-kw-done="1"]')) return false;  // 外层整题容器：内层已标 done
+      var roles = box.querySelectorAll('[role=radio],[role=checkbox]');
+      if (roles.length) {
+        var picked = [].slice.call(roles).some(function (r) {
+          return r.getAttribute('aria-checked') === 'true' ||
+                 /(^|\s)(checked|selected|active|on|cur|check)(\s|$)/.test(r.className || '');
+        });
+        return !picked;
+      }
+      var ins = box.querySelectorAll('input[type=radio],input[type=checkbox]');
+      if (ins.length) return ![].some.call(ins, function (i) { return i.checked; });
+      return true; // 含填空等未确认的，保守视为未完成
+    });
+  }
+  function findPaperSubmitBtn() {
+    function texts(b) { return (b.innerText || b.value || txt(b) || '').replace(/\s+/g, ''); }
+    // 第一优先：真正可点的控件，文字命中“交卷/提交…”
+    var controls = [].slice.call(document.querySelectorAll(
+      'button,a,[role=button],input[type=submit],input[type=button],.btn,.submitBtn,[class*=submit],[class*=Submit]'
+    )).filter(visible);
+    var hit = controls.find(function (b) {
+      var t = texts(b);
+      if (!t || t.length > 10 || /下一题|下一页|重新|保存草稿|暂存|查看/.test(t)) return false;
+      return /交卷|提交试卷|提交作业|我要交卷|完成提交/.test(t) || t === '提交' || t === '提交答案';
+    });
+    if (hit) return hit;
+    // 退路：span/div/li 里【精确】就是“交卷”二字（超星部分皮肤用裸标签 + JS 委托）
+    var labels = [].slice.call(document.querySelectorAll('a,li,span,div')).filter(visible);
+    return labels.find(function (b) {
+      var t = texts(b);
+      return t === '交卷' || t === '我要交卷' || t === '提交试卷' || t === '提交作业';
+    }) || null;
+  }
+  function submitWholePaper() {
+    if (!CFG.autoSubmit) return;
+    if (hasUnanswered()) return;                       // 还有题没答成，绝不交卷
+    var now = Date.now();
+    if (now - paperSubmitAt < 8000) return;            // 防重复交卷
+    var btn = findPaperSubmitBtn();
+    if (!btn) return;
+    paperSubmitAt = now;
+    dbg('paperSubmit', 'go');
+    hudStatus('📝 全部作答完成，正在交卷…');
+    try { btn.click(); } catch (e) {}
+    // 交卷确认弹窗（超星通常弹“确认提交/确定”）
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      var ok = findBtn(['确认提交', '确认交卷', '继续交卷', '仍要交卷', '继续提交', '确定', '确认', '提交', '知道了'], document, 10);
+      if (ok) { try { ok.click(); } catch (e) {} clearInterval(timer); dbg('paperSubmit', 'confirmed'); return; }
+      if (tries > 6) clearInterval(timer);
+    }, 700);
   }
 
   // ---------- 看完自动下一节 ----------
@@ -892,7 +956,7 @@
   function dbg(k, v) {
     try { document.documentElement.setAttribute('data-kw-' + k, String(v)); } catch (e) {}
   }
-  dbg('loaded', '2.6.4');
+  dbg('loaded', '2.6.5');
 
   // ---------- 主循环 ----------
   var loopQueued = false;
@@ -977,13 +1041,23 @@
     catch (e) { dbg('scanErr', (e.message || '').slice(0, 80)); console.error('[kw findQ err]', e && e.stack); return; }
     if (!qs.length) { dbg('stage', 'listening'); return; }
     busy = true; dbg('stage', 'answering');
+    var answeredNow = 0, skippedNow = 0;
     for (var i = 0; i < qs.length; i++) {
       if (!active()) break;
-      try { decryptQuestion(qs[i]); await answerOne(qs[i]); } catch (e) { dbg('ansErr', (e.message || '').slice(0, 80)); }
+      try {
+        decryptQuestion(qs[i]);
+        var okOne = await answerOne(qs[i]);
+        if (okOne) answeredNow++; else skippedNow++;
+      } catch (e) { dbg('ansErr', (e.message || '').slice(0, 80)); skippedNow++; }
       await new Promise(function (r) { setTimeout(r, 500); });
     }
     busy = false;
     updateHud();
+    // 本轮扫到的题全部答成 → 尝试整卷统一交卷（页面是每题提交的则 doSubmit 已处理过）
+    if (CFG.autoSubmit && answeredNow > 0 && skippedNow === 0) {
+      dbg('paperSubmit', 'armed:' + answeredNow);
+      setTimeout(function () { try { submitWholePaper(); } catch (e) { dbg('paperErr', (e.message || '').slice(0, 60)); } }, 900);
+    }
   }
   setInterval(function () {
     if (!active()) return;

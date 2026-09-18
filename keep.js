@@ -1,6 +1,6 @@
 (function () {
   // 心跳：证明 MAIN 世界内容脚本已注入（两世界共享同一 DOM，主世界控制台可读）
-  try { document.documentElement.setAttribute('data-kw-hb-keep', '2.6.4'); } catch (e) {}
+  try { document.documentElement.setAttribute('data-kw-hb-keep', '2.6.5'); } catch (e) {}
   // 只在主流挂课平台生效；其他网站不受影响
   var host = location.hostname;
   var platforms = /chaoxing\.com|yuketang\.cn|xuetangx\.com|zhihuishu\.com|icve\.com|mooc\.cn|xuexi365|study\.xuexi\.cn/;
