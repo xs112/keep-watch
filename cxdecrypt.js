@@ -10,7 +10,7 @@
   'use strict';
   // 心跳 + 依赖自检（隔离世界）
   try {
-    document.documentElement.setAttribute('data-kw-hb-cxdec', '2.6.5');
+    document.documentElement.setAttribute('data-kw-hb-cxdec', '2.6.6');
     document.documentElement.setAttribute('data-kw-dep-typr', (typeof window.Typr !== 'undefined' && window.Typr.U) ? 'ok' : 'MISSING');
     document.documentElement.setAttribute('data-kw-dep-table', (typeof window.KW_CX_TABLE === 'object' && window.KW_CX_TABLE) ? 'ok' : 'MISSING');
   } catch (e) {}

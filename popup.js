@@ -1,6 +1,6 @@
 /* keep-watch popup */
 var DEFAULTS = {
-  enabled: true, autoAnswer: true, autoSubmit: true, autoNext: true, dryRun: false,
+  enabled: true, fullAuto: false, autoAnswer: true, autoSubmit: true, autoNext: true, dryRun: false,
   videoOnly: false,
   usePage: true, useBank: true, useAI: true, autoLearn: true,
   aiProvider: 'deepseek', aiBase: 'https://api.deepseek.com',
@@ -28,21 +28,34 @@ function flash(msg, ok) {
 }
 
 function bindChecks(cfg) {
-  ['enabled', 'autoAnswer', 'autoSubmit', 'autoNext', 'videoOnly', 'dryRun', 'usePage', 'useBank', 'useAI', 'autoLearn', 'onlyPlatforms']
+  ['enabled', 'fullAuto', 'autoAnswer', 'autoSubmit', 'autoNext', 'videoOnly', 'dryRun', 'usePage', 'useBank', 'useAI', 'autoLearn', 'onlyPlatforms']
     .forEach(function (k) {
       var el = $(k);
       el.checked = !!cfg[k];
       el.onchange = function () {
         var patch = {}; patch[k] = el.checked;
+        // 开启全自动：同步勾选三个子开关并落库，保证后台/各帧状态一致
+        if (k === 'fullAuto' && el.checked) {
+          ['autoAnswer', 'autoSubmit', 'autoNext'].forEach(function (s) {
+            patch[s] = true; $(s).checked = true;
+          });
+          patch.videoOnly = false; $('videoOnly').checked = false;
+        }
         chrome.storage.local.set(patch);
         flash('已保存');
         syncVideoOnlyHint();
+        syncFullAutoHint();
       };
     });
   syncVideoOnlyHint();
+  syncFullAutoHint();
 }
 function syncVideoOnlyHint() {
   var box = $('videoOnly'), hint = $('videoOnlyHint');
+  if (box && hint) hint.style.display = box.checked ? 'block' : 'none';
+}
+function syncFullAutoHint() {
+  var box = $('fullAuto'), hint = $('fullAutoHint');
   if (box && hint) hint.style.display = box.checked ? 'block' : 'none';
 }
 

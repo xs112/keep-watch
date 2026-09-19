@@ -21,10 +21,13 @@
 </style>
 </head>
 <body>
-<h1>📺 keep-watch <span class="stat">v2.6.5</span></h1>
+<h1>📺 keep-watch <span class="stat">v2.6.6</span></h1>
 
 <div class="row"><b>总开关</b><input type="checkbox" id="enabled" class="switch"></div>
 <div class="sub">关闭后仅保留防暂停，不再答题。右下角悬浮球也可点按暂停。</div>
+
+<div class="row" style="background:linear-gradient(90deg,#1f6f3a,#2e8b57);border-radius:6px;padding:8px 10px;margin:6px 0"><label style="color:#fff;font-weight:700;font-size:14px">🚀 全自动模式（答题→自动交卷→自动下一节）</label><input type="checkbox" id="fullAuto" class="switch"></div>
+<div class="sub" id="fullAutoHint" style="display:none;color:#2e8b57">已开启：自动答完每一道题后整卷交卷、确认弹窗，并自动进入下一节循环。任何一题拿不准被跳过时不会强行交卷。</div>
 
 <fieldset>
 <legend>答题设置</legend>

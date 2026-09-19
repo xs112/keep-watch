@@ -3,7 +3,7 @@
   'use strict';
 
   // 极早心跳：不依赖任何后续定义，只要 quiz.js 被加载执行就会写入
-  try { document.documentElement.setAttribute('data-kw-hb-quiz', '2.6.5'); } catch (e) {}
+  try { document.documentElement.setAttribute('data-kw-hb-quiz', '2.6.6'); } catch (e) {}
 
   // CSS.escape 兜底（老旧环境）
   try {
@@ -17,7 +17,7 @@
 
   var HOST_RE = /chaoxing\.com|yuketang\.cn|xuetangx\.com|zhihuishu\.com|icve\.com|mooc\.cn|xuexi365|study\.xuexi\.cn/;
   var DEFAULTS = {
-    enabled: true, autoAnswer: true, autoSubmit: true, autoNext: true, dryRun: false,
+    enabled: true, fullAuto: false, autoAnswer: true, autoSubmit: true, autoNext: true, dryRun: false,
     videoOnly: false,
     usePage: true, useBank: true, useAI: true, autoLearn: true,
     aiProvider: 'deepseek', aiBase: 'https://api.deepseek.com',
@@ -28,9 +28,20 @@
   var done = new WeakSet();           // 已处理的题目容器
   var answeredCount = 0, skippedCount = 0, busy = false;
 
+  // 全自动模式：一键强制 答题 + 自动交卷 + 自动下一节（仅作用于内存，不回写存储）
+  function applyMode() {
+    if (CFG.fullAuto) {
+      CFG.autoAnswer = true;
+      CFG.autoSubmit = true;
+      CFG.autoNext = true;
+      CFG.videoOnly = false;
+    }
+  }
+
   // ---------- 配置 ----------
   chrome.storage.local.get(null, function (all) {
     Object.assign(CFG, all || {});
+    applyMode();
     bank = all.bank || {};
     buildHud();
     bindVideosAndDialogs();
@@ -43,6 +54,7 @@
       if (k === 'bank') bank = ch.bank.newValue || {};
       else if (k in DEFAULTS) CFG[k] = ch[k].newValue;
     });
+    applyMode();
   });
 
   function active() {
@@ -536,9 +548,55 @@
     var timer = setInterval(function () {
       tries++;
       var ok = findBtn(['确认提交', '确认交卷', '继续交卷', '仍要交卷', '继续提交', '确定', '确认', '提交', '知道了'], document, 10);
-      if (ok) { try { ok.click(); } catch (e) {} clearInterval(timer); dbg('paperSubmit', 'confirmed'); return; }
+      if (ok) {
+        try { ok.click(); } catch (e) {}
+        clearInterval(timer);
+        dbg('paperSubmit', 'confirmed');
+        advanceAfterPaper();                           // 交卷成功 → 全自动推进下一节
+        return;
+      }
       if (tries > 6) clearInterval(timer);
     }, 700);
+  }
+
+  // 交卷成功后的“全自动下一节”：等结果/完成页出现，点本帧“下一节/继续学习”，
+  // 同时经 SW 广播让目录 frame 跳转（doHomeWork 与目录常是兄弟 iframe）。
+  var paperAdvanceAt = 0;
+  function advanceAfterPaper() {
+    if (!CFG.autoNext) return;
+    var start = Date.now();
+    if (paperAdvanceAt && start - paperAdvanceAt < 12000) return;
+    paperAdvanceAt = start;
+    hudStatus('✅ 已交卷，准备进入下一节…');
+    var finished = false;
+    function go() {
+      if (finished) return;
+      // 1) 结果/完成弹窗里的“下一节/继续学习”最优先
+      var dlg = completionDialog();
+      var b = (dlg && findNextButton(dlg)) || findNextButton();
+      if (b) {
+        finished = true;
+        dbg('paperNext', 'click');
+        try { b.click(); } catch (e) {}
+        afterNext();
+        hudStatus('▶️ 已交卷，自动切换下一节…');
+        return true;
+      }
+      return false;
+    }
+    // 先本地轮询 ~6s（结果页加载、按钮渲染需要时间）
+    var n = 0;
+    var t = setInterval(function () {
+      n++;
+      if (go() || n > 20) {
+        clearInterval(t);
+        if (!finished) {
+          // 本帧找不到入口 → 广播给目录 frame（带独立来源，受 SW 10s 防抖约束）
+          dbg('paperNext', 'broadcast');
+          kwSend('finish', { source: 'paper-submit' });
+        }
+      }
+    }, 300);
   }
 
   // ---------- 看完自动下一节 ----------
@@ -956,7 +1014,7 @@
   function dbg(k, v) {
     try { document.documentElement.setAttribute('data-kw-' + k, String(v)); } catch (e) {}
   }
-  dbg('loaded', '2.6.5');
+  dbg('loaded', '2.6.6');
 
   // ---------- 主循环 ----------
   var loopQueued = false;
